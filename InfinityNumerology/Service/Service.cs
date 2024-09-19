@@ -1,19 +1,24 @@
-﻿using InfinityNumerology.OpenAI;
+﻿using InfinityNumerology.DataSource;
+using InfinityNumerology.OpenAI;
 using InfinityNumerology.Service.Text;
 using Microsoft.AspNetCore.Mvc;
+using System.Text;
+using Telegram.Bot.Types;
 
 namespace InfinityNumerology.Service
 {
-    public class Service
+    public class ServiceResponse
     {
         private readonly OpenAIService _openAI;
-        private readonly ILogger<Service> _logger;
+        private readonly ILogger<ServiceResponse> _logger;
         IConfiguration _configuration;
-        public Service(OpenAIService openAI, ILogger<Service> logger, IConfiguration configuration)
+        private readonly IDataBase _db;
+        public ServiceResponse(OpenAIService openAI, ILogger<ServiceResponse> logger, IConfiguration configuration, IDataBase db)
         {
             _openAI = openAI;
             _logger = logger;
             _configuration = configuration;
+            _db = db;
         }
         public async Task<string> DistributorAsync(DateTime date, string command)
         {
@@ -69,6 +74,52 @@ namespace InfinityNumerology.Service
                 default:
                     return "Неизвестная ошибка, попробуйте ещё раз";
             }
+        }
+
+        public async Task<bool> InsertIntoTable(Update update)
+        {
+            try
+            {
+                await _db.UserInsert(update);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+                throw;
+            }
+            
+            
+        }
+
+        public async Task<string> GetUsersForAdmin(string command)
+        {
+            if(command == "/getall")
+            {
+                StringBuilder usersString = new StringBuilder();
+                var users = await _db.GetAllUsers();
+                foreach (var user in users)
+                {
+                    usersString.Append($"{user.user_Id} | {user.userName} | {user.firstName} | {user.bio} | {user.user_Date}\n");
+                }
+                return usersString.ToString();
+            }
+            else if(command.StartsWith("/getbyid="))
+            {
+                if(long.TryParse(command.Substring(9), out var id))
+                {
+                    StringBuilder userString = new StringBuilder();
+                    var user = await _db.GetUserById(id);
+                    userString.Append(user.user_Id + "|");
+                    userString.Append(user.userName + "|");
+                    userString.Append(user.firstName + "|");
+                    userString.Append(user.bio + "|");
+                    userString.Append(user.user_Date + "|");
+                    return userString.ToString();
+                }
+            }
+            return "User not found";
+            
         }
 
     }

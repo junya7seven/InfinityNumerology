@@ -7,14 +7,20 @@ namespace InfinityNumerology.OpenAI
     public class OpenAIService
     {
         private readonly HttpClient client = new HttpClient();
-        private readonly string apiUrl = "https://api.proxyapi.ru/openai/v1/chat/completions";
-        private readonly string apiKey = "Your_Token";
+        private readonly string apiUrl;
+        private readonly string apiKey;
         private readonly IConfiguration _configuration;
 
         public OpenAIService(IConfiguration configuration)
         {
-            client.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
+
             _configuration = configuration;
+
+            apiKey = _configuration.GetSection("OpenAIConfiguration:apiKey").Value;
+            apiUrl = _configuration.GetSection("OpenAIConfiguration:apiUrl").Value;
+
+            client.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
+
         }
 
         public async Task<string> MessageResponse(string content,string systemHelp, string assisnantHelp)
