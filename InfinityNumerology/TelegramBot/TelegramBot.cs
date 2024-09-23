@@ -5,6 +5,7 @@ using Telegram.Bot.Types;
 using Telegram.Bot;
 using InfinityNumerology.DataSource;
 using InfinityNumerology.Service;
+using InfinityNumerology.Service.AdminCommands;
 
 namespace InfinityNumerology.TelegramBot
 {
@@ -13,10 +14,17 @@ namespace InfinityNumerology.TelegramBot
         private readonly Dictionary<long, bool> _awaitingDateInput = new Dictionary<long, bool>();
         private readonly Dictionary<long, string> _lastPressedButton = new Dictionary<long, string>();
         private readonly ServiceResponse _serviceResponse;
-
-        public TelegramBot(ServiceResponse serviceResponse)
+        private readonly Admin _admin;
+        private readonly IConfiguration _configuration;
+        private readonly string adminIdString;
+        private readonly long adminId;
+        public TelegramBot(ServiceResponse serviceResponse, Admin admin, IConfiguration configuration)
         {
             _serviceResponse = serviceResponse;
+            _admin = admin;
+            _configuration = configuration;
+            adminIdString = _configuration.GetSection("BotConfiguration:adminID").Value;
+            adminId = long.Parse(adminIdString);
         }
 
         public async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
@@ -25,16 +33,13 @@ namespace InfinityNumerology.TelegramBot
             {
                 var chatId = update.Message.Chat.Id;
                 var messageText = update.Message.Text;
-                if(chatId == 5860197616)
+                if(chatId == adminId && messageText.StartsWith("/") && messageText != "/start")
                 {
-                    var test = await _serviceResponse.GetUsersForAdmin(messageText);
-                    await botClient.SendTextMessageAsync(
-                        chatId: chatId,
-                        text: test,
-                        cancellationToken: cancellationToken);
-                }
+                    await HadleAdminCommand(botClient, update, cancellationToken, chatId, messageText);
 
-                if (messageText == "/start")
+
+                }
+                else if (messageText == "/start")
                 {
                     await _serviceResponse.InsertIntoTable(update);
                     await HandleStartCommand(botClient, chatId, cancellationToken);
@@ -55,6 +60,63 @@ namespace InfinityNumerology.TelegramBot
                         cancellationToken: cancellationToken
                     );
                 }
+            }
+        }
+
+        private async Task HadleAdminCommand(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken, long chatId, string messageText)
+        {
+            if (messageText.StartsWith("/notification"))
+            {
+                string[] command = messageText.Split('=');
+                var message = command[1];
+                var users = await _admin.NotificationUsers();
+                /*List<long> users = new List<long>();
+                users.Add(5860197616);
+                users.Add(5860197616);
+                users.Add(5860197616);
+                users.Add(12121);*/
+                foreach (var id in users)
+                {
+                    try
+                    {
+                        await botClient.SendTextMessageAsync(
+                            chatId: id,
+                            text: message,
+                            cancellationToken: cancellationToken);
+                    }
+                    catch (Telegram.Bot.Exceptions.ApiRequestException ex)
+                    {
+                        if (ex.ErrorCode == 403)
+                        {
+                            await botClient.SendTextMessageAsync(
+                            chatId: adminId,
+                            text: $"Пользователь с id {id} заблокировал бота.",
+                            cancellationToken: cancellationToken);
+                        }
+                        else if (ex.ErrorCode == 404)
+                        {
+                            await botClient.SendTextMessageAsync(
+                            chatId: adminId,
+                            text: $"Пользователь с id {id} не найден.",
+                            cancellationToken: cancellationToken);
+                        }
+                        else
+                        {
+                            await botClient.SendTextMessageAsync(
+                            chatId: adminId,
+                            text: $"Ошибка при отправке сообщения пользователю {id}: {ex.Message}",
+                            cancellationToken: cancellationToken);
+                        }
+                    }
+                }
+            }
+            else
+            {
+                var result = await _admin.CheckCommand(messageText);
+                await botClient.SendTextMessageAsync(
+                    chatId: chatId,
+                    text: result,
+                    cancellationToken: cancellationToken);
             }
         }
 
@@ -108,7 +170,7 @@ namespace InfinityNumerology.TelegramBot
             if (DateTime.TryParseExact(dateInput, "dd/MM/yyyy", null, DateTimeStyles.None, out DateTime parsedDate))
             {
                 string pressedButton = _lastPressedButton.ContainsKey(chatId) ? _lastPressedButton[chatId] : "Неизвестно";
-                var response = await _serviceResponse.DistributorAsync(parsedDate, pressedButton);
+                var response = await _serviceResponse.DistributorAsync(parsedDate, pressedButton, chatId);
 
                 await botClient.SendTextMessageAsync(
                     chatId: chatId,

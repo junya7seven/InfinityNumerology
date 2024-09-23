@@ -1,5 +1,6 @@
 ﻿using InfinityNumerology.DataSource;
 using InfinityNumerology.OpenAI;
+using InfinityNumerology.Service.AdminCommands;
 using InfinityNumerology.Service.Text;
 using Microsoft.AspNetCore.Mvc;
 using System.Text;
@@ -20,10 +21,14 @@ namespace InfinityNumerology.Service
             _configuration = configuration;
             _db = db;
         }
-        public async Task<string> DistributorAsync(DateTime date, string command)
+        public async Task<string> DistributorAsync(DateTime date, string command, long id)
         {
             string? prompt = null;
             string systemHelp, assistantHelp;
+            if(!await CheckUserBalance(id))
+            {
+                return "Не достаточно средств на балансе. Пополните баланс";
+            }
             switch(command)
             {
                 case "Расшифровка даты рождения":
@@ -42,8 +47,9 @@ namespace InfinityNumerology.Service
             {
                 if(prompt != null)
                 {
-                var resultMessage = await Message(date, prompt, systemHelp, assistantHelp);
-                return resultMessage;
+                    var resultMessage = await Message(date, prompt, systemHelp, assistantHelp, id);
+                    await _db.RequestCount(id, command);
+                    return resultMessage;
                 }
                 return "Ошибка обработки промпта";
             }
@@ -54,15 +60,32 @@ namespace InfinityNumerology.Service
 
 
         }
-        
-        public async Task<string> Message(DateTime date, string prompt, string systemHelp, string assistantHelp)
+        private async Task<bool> CheckUserBalance(long id)
+        {
+            int userBalance = await _db.CheckUserBalance(id);
+            if(userBalance > 0)
+            {
+                return true;
+            }    
+            return false;
+        }
+
+        public async Task<string> Message(DateTime date, string prompt, string systemHelp, string assistantHelp, long id)
         {
             var result = await _openAI.MessageResponse(prompt, systemHelp, assistantHelp);
+            if (result == null)
+            {
+                return "Неизвестная ошибка, попробуйте ещё раз";
+            }
+            if(!await _db.UpdateUserBalance(id))
+            {
+                return "Не удлось узнать баланс";
+            }
             return result;
         }
 
         public async Task<string> DistributorWithoutDateAsync(string command)
-        {
+        {          
             switch(command)
             {
                 case "Как производится расшифрока?":
@@ -92,35 +115,6 @@ namespace InfinityNumerology.Service
             
         }
 
-        public async Task<string> GetUsersForAdmin(string command)
-        {
-            if(command == "/getall")
-            {
-                StringBuilder usersString = new StringBuilder();
-                var users = await _db.GetAllUsers();
-                foreach (var user in users)
-                {
-                    usersString.Append($"{user.user_Id} | {user.userName} | {user.firstName} | {user.bio} | {user.user_Date}\n");
-                }
-                return usersString.ToString();
-            }
-            else if(command.StartsWith("/getbyid="))
-            {
-                if(long.TryParse(command.Substring(9), out var id))
-                {
-                    StringBuilder userString = new StringBuilder();
-                    var user = await _db.GetUserById(id);
-                    userString.Append(user.user_Id + "|");
-                    userString.Append(user.userName + "|");
-                    userString.Append(user.firstName + "|");
-                    userString.Append(user.bio + "|");
-                    userString.Append(user.user_Date + "|");
-                    return userString.ToString();
-                }
-            }
-            return "User not found";
-            
-        }
 
     }
 }
