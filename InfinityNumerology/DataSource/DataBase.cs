@@ -1,6 +1,7 @@
 ﻿using Dapper;
 using InfinityNumerology.DataSource.Model;
 using Npgsql;
+using System.Xml.Linq;
 using Telegram.Bot.Types;
 namespace InfinityNumerology.DataSource
 {
@@ -8,13 +9,51 @@ namespace InfinityNumerology.DataSource
     {
         private readonly string _connectionString;
         private readonly IConfiguration _configuration;
-        public DataBase(IConfiguration configuration)
+        private readonly DataBaseSet _dbset;
+        public DataBase(IConfiguration configuration, DataBaseSet dataBase)
         {
             _configuration = configuration;
             _connectionString = _configuration.GetConnectionString("DefaultConnection");
+            _dbset = dataBase;
+        }
+        public async Task InitializeAsync()
+        {
+            //await _dbset.CreateDataBase();
+            await CreateTableIfNotExists();
+        }
+        public async Task<bool> CreateTableIfNotExists()
+        {
+            if (!await TableExists("user_info") ||
+                !await TableExists("user_balance") ||
+                !await TableExists("request_count"))
+            {
+                return await _dbset.CreateTable();
+            }
+            return true;
+        }
+        private async Task<bool> TableExists(string tableName)
+        {
+            var sql = $@"SELECT EXISTS (
+                        SELECT 1 
+                        FROM information_schema.tables 
+                        WHERE table_name = '{tableName}'
+                        );";
+            try
+            {
+                using (var connection = new NpgsqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync();
+                    return await connection.QuerySingleAsync<bool>(sql);
+
+                }
+            }
+            catch (Exception exception)
+            {
+                Console.WriteLine(exception.Message);
+                throw;
+            }
         }
 
-        
         public async Task UserInsert(Update update)
         {
             long userId = update.Message.Chat.Id;
@@ -52,7 +91,7 @@ namespace InfinityNumerology.DataSource
             var sql = InsertBalanceSQL();
             var user_balance = new UserBalance()
             {
-                balance_access = 3,
+                balance_access = 20,
                 user_Id = id
             };
             try
@@ -91,14 +130,14 @@ namespace InfinityNumerology.DataSource
         {
             try
             {
-                int currentBalance = await CheckUserBalance(id);
+                //int currentBalance = await CheckUserBalance(id);
 
                 var sql = UpdateUserBalanceSQL();
                 using (var connection = new NpgsqlConnection(_connectionString))
                 {
                     await connection.OpenAsync();
                     var result = await connection.ExecuteAsync(sql, new { NewBalanceAccess = newBalanceAccess, user_Id = id });
-                    return result > 0;
+                    return result > 0; 
                 }
             }
             catch (Exception exception)
@@ -114,7 +153,7 @@ namespace InfinityNumerology.DataSource
             {
                 int newBalanceAccess = await CheckUserBalance(id)-1;
 
-                var sql = UpdateUserBalanceSQL();
+                var sql = UpdateUserBalanceStatSQL();
                 using (var connection = new NpgsqlConnection(_connectionString))
                 {
                     await connection.OpenAsync();
@@ -149,14 +188,15 @@ namespace InfinityNumerology.DataSource
             }
         }
 
-        public async Task<UserInfo> GetUserById(long id)
+        public async Task<SuperUser> GetUserById(long id)
         {
             var sql = GetByIdSQL();
 
             using (var connection = new NpgsqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
-                return await connection.QuerySingleOrDefaultAsync<UserInfo>(sql, new { user_Id = id });
+                var result = await connection.QueryFirstOrDefaultAsync<SuperUser>(sql, new { user_Id = id });
+                return result;
             }
         }
 
@@ -185,6 +225,10 @@ namespace InfinityNumerology.DataSource
             {
                 await connection.OpenAsync();
                 var result = await connection.QueryAsync<UserInfo>(sql);
+                if(!result.Any())
+                {
+                    return null;
+                }
                 return result;
             }
         }
@@ -198,37 +242,48 @@ namespace InfinityNumerology.DataSource
                 return result.ToList(); 
             }
         }
-        private string UpdateUserBalanceSQL()
+        private string UpdateUserBalanceStatSQL()
         {
             var sql = @"UPDATE user_balance
                         SET balance_access = @newBalanceAccess
                         WHERE user_id = @user_Id";
             return sql;
         }
+        private string UpdateUserBalanceSQL()
+        {
+            var sql = @"UPDATE user_balance
+                        SET balance_access = balance_access + @newBalanceAccess
+                        WHERE user_id = @user_Id";
+            return sql;
+        }
         private string InsertBalanceSQL()
         {
-            var sql = $@"INSERT INTO user_balance (balance_access, user_id)
-                        VALUES(@balance_access, @user_id)";
+            var sql = $@"INSERT INTO user_balance (user_id,balance_access)
+                VALUES(@user_Id, @balance_access)
+                ON CONFLICT (user_id) 
+                DO UPDATE SET balance_access = EXCLUDED.balance_access";
             return sql;
         }
         private string InsertSQL()
         {
             var sql = @"INSERT INTO user_info (user_id, firstname, username, bio, user_date)
-                        VALUES (@User_Id, @FirstName, @UserName, @Bio, @user_Date)";
+                        VALUES (@user_Id, @firstname, @username, @bio, @user_Date)";
             return sql;
         }
         private string CheckSQL()
         {
             var sql = @"SELECT COUNT(1)
                         FROM user_info
-                        WHERE user_id = @UserId";
+                        WHERE user_id = @user_Id";
             return sql;
         }
         private string GetByIdSQL()
         {
-            var sql = @"SELECT user_id, firstname, username, bio, user_date
-                        FROM user_info
-                        WHERE user_id = @user_id";
+            var sql = @"SELECT u.user_id, u.firstname, u.username, u.bio, u.user_date, b.balance_access, r.last_request, r.count, r.command_name
+                        FROM user_info u
+                        LEFT JOIN user_balance b ON u.user_id = b.user_id
+                        LEFT JOIN request_count r ON u.user_id = r.user_id
+                        WHERE u.user_id = @user_id;";
             return sql;
         }
         private string GetAllSQL()

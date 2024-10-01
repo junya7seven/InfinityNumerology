@@ -6,6 +6,8 @@ using Telegram.Bot;
 using InfinityNumerology.DataSource;
 using InfinityNumerology.Service;
 using InfinityNumerology.Service.AdminCommands;
+using static System.Net.Mime.MediaTypeNames;
+using System.Text.RegularExpressions;
 
 namespace InfinityNumerology.TelegramBot
 {
@@ -36,11 +38,10 @@ namespace InfinityNumerology.TelegramBot
                 if(chatId == adminId && messageText.StartsWith("/") && messageText != "/start")
                 {
                     await HadleAdminCommand(botClient, update, cancellationToken, chatId, messageText);
-
-
                 }
                 else if (messageText == "/start")
                 {
+                    Console.WriteLine($"{update.Message.Chat.Id} - {update.Message.Chat.Username} - {update.Message.Chat.FirstName}");
                     await _serviceResponse.InsertIntoTable(update);
                     await HandleStartCommand(botClient, chatId, cancellationToken);
                 }
@@ -54,11 +55,8 @@ namespace InfinityNumerology.TelegramBot
                 }
                 else
                 {
-                    await botClient.SendTextMessageAsync(
-                        chatId: chatId,
-                        text: "Неизвестная команда. Пожалуйста, выберите действие.",
-                        cancellationToken: cancellationToken
-                    );
+                    var text = "Неизвестная команда. Пожалуйста, выберите действие..";
+                    await ServiceResponse.SendMessage(botClient, chatId, cancellationToken,text, adminId);
                 }
             }
         }
@@ -69,6 +67,10 @@ namespace InfinityNumerology.TelegramBot
             {
                 string[] command = messageText.Split('=');
                 var message = command[1];
+                if(string.IsNullOrEmpty(message) || message.Length < 1)
+                {
+                    return;
+                }
                 var users = await _admin.NotificationUsers();
                 /*List<long> users = new List<long>();
                 users.Add(5860197616);
@@ -112,7 +114,7 @@ namespace InfinityNumerology.TelegramBot
             }
             else
             {
-                var result = await _admin.CheckCommand(messageText);
+                var result = await _admin.CheckCommand(messageText,botClient,cancellationToken,adminId);
                 await botClient.SendTextMessageAsync(
                     chatId: chatId,
                     text: result,
@@ -123,45 +125,43 @@ namespace InfinityNumerology.TelegramBot
         private async Task HandleStartCommand(ITelegramBotClient botClient, long chatId, CancellationToken cancellationToken)
         {
             var replyKeyboard = new ReplyKeyboardMarkup(new[]
+{
+                    new KeyboardButton[] { "\xD83D\xDD0DРасшифровка даты рождения", "\x264BСовместимость знаков зодиака" },
+                    new KeyboardButton[] { "\xD83D\xDD2EМатрица судьбы" },
+                    new KeyboardButton[] { "\xD83D\xDCC3Как производится расшифрока?", "\xD83D\xDC69\u200D\xD83D\xDCBCОбратная связь" },
+                    new KeyboardButton[] { "\x2139Информация" },
+                    new KeyboardButton[] { "\x2696Узнать баланс", "\xD83D\xDCB5Пополнить баланс" }
+                })
             {
-            new KeyboardButton[] { "Расшифровка даты рождения", "Совместимость знаков зодиака" },
-            new KeyboardButton[] { "Матрица судьбы"},
-            new KeyboardButton[] { "Как производится расшифрока?", "Обратная связь" },
-            new KeyboardButton[] { "Информация"}
-        })
-            {
-                ResizeKeyboard = true
+                ResizeKeyboard = true,
+                OneTimeKeyboard = false, 
+                InputFieldPlaceholder = "Выберите действие" 
             };
 
-            await botClient.SendTextMessageAsync(
-                chatId: chatId,
-                text: "Выберите действие:",
-                replyMarkup: replyKeyboard,
-                cancellationToken: cancellationToken
-            );
+            var text = "Выберите действие:";
+            await ServiceResponse.SendMessage(botClient, chatId, cancellationToken, text, adminId, replyKeyboard);
         }
 
         private async Task HandleButtonClick(ITelegramBotClient botClient, long chatId, string buttonText, CancellationToken cancellationToken)
         {
-            if (buttonText == "Как производится расшифрока?" || buttonText == "Обратная связь" || buttonText == "Информация")
+            string pattern = "[\xD83D\xDD0D\x264B\xD83D\xDD2E\xD83D\xDCC3\xD83D\xDC69\u200D\xD83D\xDCBC\x2139\x2696\xD83D\xDCB5]";
+            buttonText = Regex.Replace(buttonText, pattern, "");
+
+            if (buttonText.Contains("Как производится расшифрока?") || buttonText.Contains("Обратная связь") || buttonText.Contains("Информация"))
             {
                 var text = await _serviceResponse.DistributorWithoutDateAsync(buttonText);
-                await botClient.SendTextMessageAsync(
-                    chatId: chatId,
-                    text: text,
-                    cancellationToken: cancellationToken
-                );
+                await ServiceResponse.SendMessage(botClient, chatId, cancellationToken, text, adminId);
+            }
+            else if (buttonText.Contains("Узнать баланс") || buttonText.Contains("Пополнить баланс"))
+            {
+                await _serviceResponse.BalanceRequest(botClient, cancellationToken, buttonText, chatId, adminId);
             }
             else
             {
                 _lastPressedButton[chatId] = buttonText;
                 _awaitingDateInput[chatId] = true;
-
-                await botClient.SendTextMessageAsync(
-                    chatId: chatId,
-                    text: "Введите дату рождения (в формате ДД/ММ/ГГГГ):",
-                    cancellationToken: cancellationToken
-                );
+                var text = "Введите дату рождения (в формате ДД/ММ/ГГГГ):";
+                await ServiceResponse.SendMessage(botClient, chatId, cancellationToken, text, adminId);
             }
         }
 
@@ -169,36 +169,33 @@ namespace InfinityNumerology.TelegramBot
         {
             if (DateTime.TryParseExact(dateInput, "dd/MM/yyyy", null, DateTimeStyles.None, out DateTime parsedDate))
             {
+                var text = "Ожидайте обработки запроса.....";
+                await ServiceResponse.SendMessage(botClient, chatId, cancellationToken, text, adminId);
                 string pressedButton = _lastPressedButton.ContainsKey(chatId) ? _lastPressedButton[chatId] : "Неизвестно";
                 var response = await _serviceResponse.DistributorAsync(parsedDate, pressedButton, chatId);
-
-                await botClient.SendTextMessageAsync(
-                    chatId: chatId,
-                    text: response,
-                    cancellationToken: cancellationToken
-                );
+                await ServiceResponse.SendMessage(botClient, chatId, cancellationToken, response, adminId);
 
                 _awaitingDateInput[chatId] = false;
             }
             else
             {
-                await botClient.SendTextMessageAsync(
-                    chatId: chatId,
-                    text: "Некорректная дата. Пожалуйста, введите дату в формате ДД/ММ/ГГГГ.",
-                    cancellationToken: cancellationToken
-                );
+                var text = "Некорректная дата. Пожалуйста, введите дату в формате ДД/ММ/ГГГГ.";
+                await ServiceResponse.SendMessage(botClient, chatId, cancellationToken, text, adminId);
             }
         }
 
         private bool IsButtonClick(string messageText)
         {
-            return messageText == "Расшифровка даты рождения" ||
-                   messageText == "Совместимость знаков зодиака" ||
-                   messageText == "Матрица судьбы" ||
-                   messageText == "Остальное" ||
-                   messageText == "Как производится расшифрока?" ||
-                   messageText == "Информация" ||
-                   messageText == "Обратная связь";
+            string pattern = "[\xD83D\xDD0D\x264B\xD83D\xDD2E\xD83D\xDCC3\xD83D\xDC69\u200D\xD83D\xDCBC\x2139\x2696\xD83D\xDCB5]";
+            messageText = Regex.Replace(messageText, pattern, "");
+            return messageText.Contains("Расшифровка даты рождения") ||
+                   messageText.Contains("Совместимость знаков зодиака") ||
+                   messageText.Contains("Матрица судьбы") ||
+                   messageText.Contains("Как производится расшифрока?") ||
+                   messageText.Contains("Информация") ||
+                   messageText.Contains("Обратная связь") ||
+                   messageText.Contains("Узнать баланс") ||
+                   messageText.Contains("Пополнить баланс");
         }
     }
 }

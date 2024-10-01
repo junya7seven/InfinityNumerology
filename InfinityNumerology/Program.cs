@@ -12,6 +12,7 @@ var botClient = new TelegramBotClient("your_token");
 builder.Services.AddSingleton(botClient);
 builder.Services.AddSingleton<IConfiguration>(builder.Configuration);
 builder.Services.AddSingleton<IDataBase, DataBase>();
+builder.Services.AddSingleton<DataBaseSet>();
 builder.Services.AddSingleton<ITelegramBot, TelegramBot>();
 builder.Services.AddSingleton<OpenAIService>();
 builder.Services.AddSingleton<ServiceResponse>();
@@ -27,6 +28,8 @@ botClient.StartReceiving(
     new DefaultUpdateHandler(botService.HandleUpdateAsync, HandleErrorAsync),
     cancellationToken: cts.Token
 );
+await app.Services.GetRequiredService<IDataBase>().InitializeAsync();
+
 
 Task HandleErrorAsync(ITelegramBotClient botClient, Exception exception, CancellationToken cancellationToken)
 {

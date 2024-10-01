@@ -1,10 +1,15 @@
 ﻿using InfinityNumerology.DataSource;
+using InfinityNumerology.DataSource.Model;
 using InfinityNumerology.OpenAI;
 using InfinityNumerology.Service.AdminCommands;
 using InfinityNumerology.Service.Text;
 using Microsoft.AspNetCore.Mvc;
+using System.Diagnostics.Eventing.Reader;
 using System.Text;
+using Telegram.Bot;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Payments;
+using Telegram.Bot.Types.ReplyMarkups;
 
 namespace InfinityNumerology.Service
 {
@@ -27,7 +32,7 @@ namespace InfinityNumerology.Service
             string systemHelp, assistantHelp;
             if(!await CheckUserBalance(id))
             {
-                return "Не достаточно средств на балансе. Пополните баланс";
+                return "Не достаточно средств на балансе. Пополните баланс, либо обратитесь \"Обратная связь\"";
             }
             switch(command)
             {
@@ -57,9 +62,43 @@ namespace InfinityNumerology.Service
             {
                 return $"Ошибка запроса: {exception.Message}";
             }
-
-
         }
+        public async Task<string> DistributorWithoutDateAsync(string command)
+        {          
+            switch(command)
+            {
+                case "Как производится расшифрока?":
+                    return TextHepler.DecodingInfo();
+                case "Обратная связь":
+                    return TextHepler.FeedBack();
+                case "Информация":
+                    return TextHepler.Information();
+                default:
+                    return "Неизвестная ошибка, попробуйте ещё раз";
+            }
+        }
+
+        public async Task BalanceRequest(ITelegramBotClient botClient, CancellationToken cancellationToken,string command, long chatId,long adminId)
+        {
+            if(command == "Узнать баланс")
+            {
+                int userBalance = await _db.CheckUserBalance(chatId);
+                var text = $"Ваш баланс - {userBalance}";
+                await SendMessage(botClient,chatId,cancellationToken,text,adminId);
+
+            }
+            else if(command == "Пополнить баланс")
+            {
+                var text = $"Скоро появится, временно кол-во запросов увеличено на 20. Если у вас закончились запросы, обратитель в \"Обратная связь\"";
+                await SendMessage(botClient, chatId, cancellationToken, text, adminId);
+            }
+            else
+            {
+                var text = $"Неизвестная ошибка";
+                await SendMessage(botClient, chatId, cancellationToken, text, adminId);
+            }
+        }
+
         private async Task<bool> CheckUserBalance(long id)
         {
             int userBalance = await _db.CheckUserBalance(id);
@@ -77,26 +116,11 @@ namespace InfinityNumerology.Service
             {
                 return "Неизвестная ошибка, попробуйте ещё раз";
             }
-            if(!await _db.UpdateUserBalance(id))
+            if (!await _db.UpdateUserBalance(id))
             {
                 return "Не удлось узнать баланс";
             }
             return result;
-        }
-
-        public async Task<string> DistributorWithoutDateAsync(string command)
-        {          
-            switch(command)
-            {
-                case "Как производится расшифрока?":
-                    return TextHepler.DecodingInfo();
-                case "Обратная связь":
-                    return TextHepler.FeedBack();
-                case "Информация":
-                    return TextHepler.Information();
-                default:
-                    return "Неизвестная ошибка, попробуйте ещё раз";
-            }
         }
 
         public async Task<bool> InsertIntoTable(Update update)
@@ -111,10 +135,42 @@ namespace InfinityNumerology.Service
                 return false;
                 throw;
             }
-            
-            
         }
 
-
+        public static async Task SendMessage(ITelegramBotClient botClient, long chatId, CancellationToken cancellationToken, string message, long adminId, IReplyMarkup? replyMarkup = null)
+        {
+            try
+            {
+                await botClient.SendTextMessageAsync(
+                            chatId: chatId,
+                            text: message,
+                            replyMarkup: replyMarkup,
+                            cancellationToken: cancellationToken);
+            }
+            catch (Telegram.Bot.Exceptions.ApiRequestException exception)
+            {
+                if (exception.ErrorCode == 403)
+                {
+                    await botClient.SendTextMessageAsync(
+                    chatId: adminId,
+                    text: $"Пользователь с id {chatId} заблокировал бота.",
+                    cancellationToken: cancellationToken);
+                }
+                else if (exception.ErrorCode == 404)
+                {
+                    await botClient.SendTextMessageAsync(
+                    chatId: adminId,
+                    text: $"Пользователь с id {chatId} не найден.",
+                    cancellationToken: cancellationToken);
+                }
+                else
+                {
+                    await botClient.SendTextMessageAsync(
+                    chatId: adminId,
+                    text: $"Ошибка при отправке сообщения пользователю {chatId}: {exception.Message}",
+                    cancellationToken: cancellationToken);
+                }
+            }
+        }
     }
 }
