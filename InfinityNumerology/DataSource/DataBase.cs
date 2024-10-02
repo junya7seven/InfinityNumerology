@@ -21,6 +21,7 @@ namespace InfinityNumerology.DataSource
             //await _dbset.CreateDataBase();
             await CreateTableIfNotExists();
         }
+
         public async Task<bool> CreateTableIfNotExists()
         {
             if (!await TableExists("user_info") ||
@@ -53,7 +54,22 @@ namespace InfinityNumerology.DataSource
                 throw;
             }
         }
-
+        public async Task<bool> OwnRequest(string SQL)
+        {
+            try
+            {
+                using(var connection = new NpgsqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync();
+                    return await connection.ExecuteAsync(SQL) > 0;
+                }
+            }
+            catch (Exception exception)
+            {
+                Console.WriteLine($"error - {exception.Message}");
+                return false;
+            }
+        }
         public async Task UserInsert(Update update)
         {
             long userId = update.Message.Chat.Id;
@@ -88,27 +104,50 @@ namespace InfinityNumerology.DataSource
         private async Task UserBalanceInsert(long id)
         {
 
-            var sql = InsertBalanceSQL();
+            var checkSql = "SELECT COUNT(1) FROM user_balance WHERE user_id = @user_Id";
+            var insertSql = "INSERT INTO user_balance (user_id, balance_access) VALUES(@user_Id, @balance_access)";
+            var updateSql = "UPDATE user_balance SET balance_access = @balance_access WHERE user_id = @user_Id";
+
             var user_balance = new UserBalance()
             {
                 balance_access = 20,
                 user_Id = id
             };
+
             try
             {
-                using(var connection = new NpgsqlConnection(_connectionString))
+                using (var connection = new NpgsqlConnection(_connectionString))
                 {
                     await connection.OpenAsync();
-                    await connection.ExecuteAsync(sql,user_balance);
+
+                    var exists = await connection.ExecuteScalarAsync<int>(checkSql, user_balance);
+
+                    if (exists == 0)
+                    {
+                        await connection.ExecuteAsync(insertSql, user_balance);
+                    }
+                    else
+                    {
+                        await connection.ExecuteAsync(updateSql, user_balance);
+                    }
                 }
             }
             catch (Exception exception)
             {
+                await RessetSequence();
                 throw;
             }
 
         }
-
+        private async Task RessetSequence()
+        {
+            var SQL = "SELECT setval('user_balance_user_balance_id_seq', (SELECT MAX(user_balance_id) FROM user_balance));";
+            using(var connection = new NpgsqlConnection(_connectionString))
+            {
+                await connection.OpenAsync();
+                await connection.ExecuteAsync(SQL);
+            }
+        }
         public async Task<int> CheckUserBalance(long id)
         {
             try

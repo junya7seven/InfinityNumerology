@@ -30,6 +30,20 @@ namespace InfinityNumerology.Service.AdminCommands
         }
         public async Task<string> CheckCommand(string command, ITelegramBotClient botClient, CancellationToken cancellationToken, long adminId)
         {
+            if(command.StartsWith("/ownrequest="))
+            {
+                string[] commandSplit = command.Split('=');
+                if (commandSplit[1].Length <= 1 || string.IsNullOrEmpty(commandSplit[1]))
+                {
+                    return "bad sql string";
+                }
+                var result = await _db.OwnRequest(commandSplit[1]);
+                if (result)
+                {
+                    return "request is completed";
+                }
+                return "error";
+            }
             command = SplitCommand(command, out long id, out int balance);
 
             try
@@ -52,7 +66,7 @@ namespace InfinityNumerology.Service.AdminCommands
 
                     case "/getbyid":
                         var user = await _db.GetUserById(id);
-                        var userinfo = $"username - {user.username}, firstname - {user.firstname}, bio - {user.bio}, registerDate - {user.user_date}\n,userBalance - {user.balance_access}, commandName - {user.command_name}, countRequest - {user.count}, lastRequest - {user.last_request}";
+                        var userinfo = $"username - {user.username}\nfirstname - {user.firstname}\nbio - {user.bio}\nregisterDate - {user.user_date}\nuserBalance - {user.balance_access}\ncommandName - {user.command_name}\ncountRequest - {user.count}\nlastRequest - {user.last_request}";
                         return userinfo;
 
                     case "/upbalance":
@@ -71,13 +85,9 @@ namespace InfinityNumerology.Service.AdminCommands
                     case "/checkbalance":
                         var userBalance = await _db.CheckUserBalance(id);
                         return $"User balance {id} - {userBalance}";
-                    case "/checkrequest":
-
-                        return "qw";
+                    
                     case "/commands":
-                        return @"/getall, /getbyid=5860197616, /upbalance=5860197616=5, 
-                                 /checkbalance=5860197616, /notification=(message)
-                                 /checkrequest=5860197616";
+                        return "/getall, /getbyid=5860197616, /upbalance=5860197616=5, /checkbalance=5860197616, /notification=(message), /ownrequest=SQL REQUEST";
 
                     default:
                         return "error";

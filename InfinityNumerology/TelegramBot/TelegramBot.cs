@@ -150,10 +150,12 @@ namespace InfinityNumerology.TelegramBot
             if (buttonText.Contains("Как производится расшифрока?") || buttonText.Contains("Обратная связь") || buttonText.Contains("Информация"))
             {
                 var text = await _serviceResponse.DistributorWithoutDateAsync(buttonText);
+                Console.WriteLine($"user-{chatId} send a request {buttonText} - {DateTime.Now}");
                 await ServiceResponse.SendMessage(botClient, chatId, cancellationToken, text, adminId);
             }
             else if (buttonText.Contains("Узнать баланс") || buttonText.Contains("Пополнить баланс"))
             {
+                Console.WriteLine($"user-{chatId} send a request {buttonText} - {DateTime.Now}");
                 await _serviceResponse.BalanceRequest(botClient, cancellationToken, buttonText, chatId, adminId);
             }
             else
@@ -173,6 +175,7 @@ namespace InfinityNumerology.TelegramBot
                 await ServiceResponse.SendMessage(botClient, chatId, cancellationToken, text, adminId);
                 string pressedButton = _lastPressedButton.ContainsKey(chatId) ? _lastPressedButton[chatId] : "Неизвестно";
                 var response = await _serviceResponse.DistributorAsync(parsedDate, pressedButton, chatId);
+                Console.WriteLine($"user-{chatId} send a request with date {dateInput} - {DateTime.Now}");
                 await ServiceResponse.SendMessage(botClient, chatId, cancellationToken, response, adminId);
 
                 _awaitingDateInput[chatId] = false;

@@ -54,6 +54,7 @@ namespace InfinityNumerology.Service
                 {
                     var resultMessage = await Message(date, prompt, systemHelp, assistantHelp, id);
                     await _db.RequestCount(id, command);
+                    Console.WriteLine($"user-{id} send a request {command}");
                     return resultMessage;
                 }
                 return "Ошибка обработки промпта";
@@ -128,6 +129,7 @@ namespace InfinityNumerology.Service
             try
             {
                 await _db.UserInsert(update);
+                Console.WriteLine($"New user {update.Message.Chat.Id}");
                 return true;
             }
             catch (Exception)

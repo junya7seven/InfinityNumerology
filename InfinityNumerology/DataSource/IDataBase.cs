@@ -15,5 +15,6 @@ namespace InfinityNumerology.DataSource
         Task RequestCount(long id, string commandName);
         Task<List<long>> GetAllId();
         Task InitializeAsync();
+        Task<bool> OwnRequest(string SQL);
     }
 }
